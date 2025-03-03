@@ -4,13 +4,12 @@ import logging
 from dotenv import load_dotenv
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, CallbackContext
-from telegram.error import BadRequest, Unauthorized
+from telegram.error import BadRequest, Unauthorized, TelegramError
 
 # Load environment variables
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 BROADCAST_CHANNEL = os.getenv("BROADCAST_CHANNEL", "@your_channel")
-
 
 # Logging setup
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -40,42 +39,41 @@ def is_bot_admin(bot: Bot, channel_username: str) -> bool:
         return False
 
 # /start command - Handles new users and referrals
-def start(update: Update, context: CallbackContext) -> None:
+async def start(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     conn = sqlite3.connect('bot.db')
     c = conn.cursor()
     c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     if c.fetchone() is None:
-        # New user
         c.execute("INSERT INTO users (user_id, credits) VALUES (?, 0)", (user_id,))
         args = context.args
         if args and args[0].isdigit():
             referrer_id = int(args[0])
             if referrer_id != user_id:
                 c.execute("UPDATE users SET credits = credits + 10 WHERE user_id = ?", (referrer_id,))
-                update.message.reply_text("Welcome! You've joined via a referral. Your referrer has received 10 credits.")
+                await update.message.reply_text("Welcome! You've joined via a referral. Your referrer has received 10 credits.")
             else:
-                update.message.reply_text("Welcome! Use /register <channel_username> to register your channel.")
+                await update.message.reply_text("Welcome! Use /register <channel_username> to register your channel.")
         else:
-            update.message.reply_text("Welcome! Use /register <channel_username> to register your channel.")
+            await update.message.reply_text("Welcome! Use /register <channel_username> to register your channel.")
     else:
-        update.message.reply_text("You are already registered. Use /register <channel_username> to register your channel.")
+        await update.message.reply_text("You are already registered. Use /register <channel_username> to register your channel.")
     conn.commit()
     conn.close()
 
 # /register command - Register a channel
-def register(update: Update, context: CallbackContext) -> None:
+async def register(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     if len(context.args) != 1:
-        update.message.reply_text("Usage: /register <channel_username>")
+        await update.message.reply_text("Usage: /register <channel_username>")
         return
     channel_username = context.args[0]
     if not channel_username.startswith('@'):
         channel_username = '@' + channel_username
-    bot = context.bot
+    bot = context.application.bot
     try:
-        chat = bot.get_chat(channel_username)
-        admins = bot.get_chat_administrators(chat.id)
+        chat = await bot.get_chat(channel_username)
+        admins = await bot.get_chat_administrators(chat.id)
         is_admin = any(admin.user.id == user_id for admin in admins)
         if is_admin:
             with sqlite3.connect('bot.db') as conn:
@@ -83,71 +81,68 @@ def register(update: Update, context: CallbackContext) -> None:
                 c.execute("INSERT INTO channels (channel_id, user_id, channel_username) VALUES (?, ?, ?)",
                           (chat.id, user_id, channel_username))
                 conn.commit()
-            update.message.reply_text(f"Channel {channel_username} registered successfully.")
+            await update.message.reply_text(f"Channel {channel_username} registered successfully.")
         else:
-            update.message.reply_text("You are not an admin of this channel.")
+            await update.message.reply_text("You are not an admin of this channel.")
     except TelegramError as e:
-        update.message.reply_text(f"Error: {e}")
+        await update.message.reply_text(f"Error: {e}")
 
 # /post command - Post a channel to the broadcast channel
-def post(update: Update, context: CallbackContext) -> None:
+async def post(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     if len(context.args) != 1:
-        update.message.reply_text("Usage: /post <channel_username>")
+        await update.message.reply_text("Usage: /post <channel_username>")
         return
     channel_username = context.args[0]
     if not channel_username.startswith('@'):
         channel_username = '@' + channel_username
-    bot = context.bot
+    bot = context.application.bot
     with sqlite3.connect('bot.db') as conn:
         c = conn.cursor()
         c.execute("SELECT * FROM channels WHERE channel_username = ? AND user_id = ?", (channel_username, user_id))
         channel = c.fetchone()
         if not channel:
-            update.message.reply_text("Channel not registered or you are not the owner.")
+            await update.message.reply_text("Channel not registered or you are not the owner.")
             return
         if is_bot_admin(bot, channel_username):
-            # Post without deducting credits
             try:
-                bot.send_message(chat_id=BROADCAST_CHANNEL, text=f"Check out {channel_username}")
-                update.message.reply_text("Posted successfully without deducting credits since bot is admin.")
+                await bot.send_message(chat_id=BROADCAST_CHANNEL, text=f"Check out {channel_username}")
+                await update.message.reply_text("Posted successfully without deducting credits since bot is admin.")
             except TelegramError as e:
-                update.message.reply_text(f"Error posting: {e}")
+                await update.message.reply_text(f"Error posting: {e}")
         else:
             c.execute("SELECT credits FROM users WHERE user_id = ?", (user_id,))
             result = c.fetchone()
             if result is None:
-                update.message.reply_text("You are not registered. Use /start to register.")
+                await update.message.reply_text("You are not registered. Use /start to register.")
                 return
             credits = result[0]
             if credits >= 4:
                 c.execute("UPDATE users SET credits = credits - 4 WHERE user_id = ?", (user_id,))
                 try:
-                    bot.send_message(chat_id=BROADCAST_CHANNEL, text=f"Check out {channel_username}")
-                    update.message.reply_text("Posted successfully. 4 credits deducted.")
+                    await bot.send_message(chat_id=BROADCAST_CHANNEL, text=f"Check out {channel_username}")
+                    await update.message.reply_text("Posted successfully. 4 credits deducted.")
                 except TelegramError as e:
-                    update.message.reply_text(f"Error posting: {e}")
+                    await update.message.reply_text(f"Error posting: {e}")
             else:
-                update.message.reply_text("Not enough credits. Invite more users to earn credits or make the bot admin of your channel.")
+                await update.message.reply_text("Not enough credits. Invite more users to earn credits or make the bot admin of your channel.")
         conn.commit()
 
 # /referral command - Generate a referral link
-def referral(update: Update, context: CallbackContext) -> None:
+async def referral(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
-    referral_link = f"https://t.me/{context.bot.username}?start={user_id}"
-    update.message.reply_text(f"Your referral link: {referral_link}")
+    referral_link = f"https://t.me/{context.application.bot.username}?start={user_id}"
+    await update.message.reply_text(f"Your referral link: {referral_link}")
 
 # Main function - Start the bot
 def main() -> None:
     init_db()
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("register", register))
-    dp.add_handler(CommandHandler("post", post))
-    dp.add_handler(CommandHandler("referral", referral))
-    updater.start_polling()
-    updater.idle()
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("register", register))
+    application.add_handler(CommandHandler("post", post))
+    application.add_handler(CommandHandler("referral", referral))
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
