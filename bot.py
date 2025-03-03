@@ -1,16 +1,20 @@
+import os
 import sqlite3
-from telegram import Update, Bot
-from telegram.ext import Updater, CommandHandler, CallbackContext
-from telegram.error import TelegramError
 import logging
+from dotenv import load_dotenv
+from telegram import Update, Bot
+from telegram.ext import Application, CommandHandler, CallbackContext
+from telegram.error import BadRequest, Unauthorized
+
+# Load environment variables
+load_dotenv()
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+BROADCAST_CHANNEL = os.getenv("BROADCAST_CHANNEL", "@your_channel")
+
 
 # Logging setup
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Configuration - Replace these with your own values
-BOT_TOKEN = 'YOUR_BOT_TOKEN_HERE'  # Replace with your bot token
-BROADCAST_CHANNEL = '@your_broadcast_channel'  # Replace with your broadcast channel username
 
 # Database initialization
 def init_db():
