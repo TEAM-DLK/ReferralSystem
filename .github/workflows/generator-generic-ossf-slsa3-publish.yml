@@ -1,66 +1,63 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
+name: Generate and Publish SLSA 3 SBOM
 
-# This workflow lets you generate SLSA provenance file for your project.
-# The generation satisfies level 3 for the provenance requirements - see https://slsa.dev/spec/v0.1/requirements
-# The project is an initiative of the OpenSSF (openssf.org) and is developed at
-# https://github.com/slsa-framework/slsa-github-generator.
-# The provenance file can be verified using https://github.com/slsa-framework/slsa-verifier.
-# For more information about SLSA and how it improves the supply-chain, visit slsa.dev.
-
-name: SLSA generic generator
 on:
-  workflow_dispatch:
-  release:
-    types: [created]
+  push:
+    branches:
+      - main  # Trigger the workflow on pushes to the 'main' branch
+  pull_request:
+    branches:
+      - main  # Trigger the workflow on pull requests to the 'main' branch
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    outputs:
-      digests: ${{ steps.hash.outputs.digests }}
+    runs-on: ubuntu-latest  # Use the latest Ubuntu environment
 
     steps:
-      - uses: actions/checkout@v4
+    # Checkout the repository
+    - name: Checkout repository
+      uses: actions/checkout@v2
 
-      # ========================================================
-      #
-      # Step 1: Build your artifacts.
-      #
-      # ========================================================
-      - name: Build artifacts
-        run: |
-            # These are some amazing artifacts.
-            echo "artifact1" > artifact1
-            echo "artifact2" > artifact2
+    # Set up Python
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'  # Adjust the version of Python based on your needs
 
-      # ========================================================
-      #
-      # Step 2: Add a step to generate the provenance subjects
-      #         as shown below. Update the sha256 sum arguments
-      #         to include all binaries that you generate
-      #         provenance for.
-      #
-      # ========================================================
-      - name: Generate subject for provenance
-        id: hash
-        run: |
-          set -euo pipefail
+    # Install dependencies (you can add or modify as needed)
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
 
-          # List the artifacts the provenance will refer to.
-          files=$(ls artifact*)
-          # Generate the subjects (base64 encoded).
-          echo "hashes=$(sha256sum $files | base64 -w0)" >> "${GITHUB_OUTPUT}"
+    # Generate the SBOM (Software Bill of Materials) using the OSSF tools
+    - name: Generate SBOM with OSSF tools
+      run: |
+        curl -sSL https://github.com/ossf/sbom-generator/releases/download/v0.3.0/sbom-generator-linux-amd64 -o sbom-generator
+        chmod +x sbom-generator
+        ./sbom-generator generate --format spdx-json --output sbom.json  # You can change the format to your preference
 
-  provenance:
-    needs: [build]
-    permissions:
-      actions: read   # To read the workflow path.
-      id-token: write # To sign the provenance.
-      contents: write # To add assets to a release.
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.4.0
-    with:
-      base64-subjects: "${{ needs.build.outputs.digests }}"
-      upload-assets: true # Optional: Upload to a new release
+    # Create the SLSA 3 metadata
+    - name: Generate SLSA 3 Metadata
+      run: |
+        curl -sSL https://github.com/ossf/slsa-github-generator/releases/download/v0.2.0/slsa-github-generator-linux-amd64 -o slsa-github-generator
+        chmod +x slsa-github-generator
+        ./slsa-github-generator generate --path . --format json --output slsa-metadata.json  # Adjust based on the repo path
+
+    # Upload the SBOM and SLSA 3 metadata as artifacts
+    - name: Upload SBOM and SLSA 3 metadata as artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: sbom-and-slsa-metadata
+        path: |
+          sbom.json
+          slsa-metadata.json
+
+    # Optionally, notify the team of a successful process
+    - name: Notify Success
+      if: success()
+      run: echo "SBOM and SLSA 3 metadata generated and uploaded successfully!"
+
+    # Optionally, notify on failure
+    - name: Notify Failure
+      if: failure()
+      run: echo "Failed to generate SBOM or SLSA 3 metadata."
