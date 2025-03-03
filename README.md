@@ -2,8 +2,7 @@
 
 1️⃣ Install Python
 
-pip install python-telegram-bot[asyncio] python-dotenv sqlite3
-
+pip install python-dotenv python-telegram-bot
 
 
 Run in Background (Windows CMD)
