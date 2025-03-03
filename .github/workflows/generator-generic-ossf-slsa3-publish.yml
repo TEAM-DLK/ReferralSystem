@@ -1,63 +1,29 @@
-name: Generate and Publish SLSA 3 SBOM
+name: OSSF SLSA3 Publish
 
 on:
   push:
     branches:
-      - main  # Trigger the workflow on pushes to the 'main' branch
-  pull_request:
-    branches:
-      - main  # Trigger the workflow on pull requests to the 'main' branch
+      - main
 
 jobs:
-  build:
-    runs-on: ubuntu-latest  # Use the latest Ubuntu environment
+  slsa3-security:
+    runs-on: ubuntu-latest
 
     steps:
-    # Checkout the repository
-    - name: Checkout repository
-      uses: actions/checkout@v2
+      - name: Checkout code
+        uses: actions/checkout@v2
 
-    # Set up Python
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'  # Adjust the version of Python based on your needs
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.8'
 
-    # Install dependencies (you can add or modify as needed)
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    # Generate the SBOM (Software Bill of Materials) using the OSSF tools
-    - name: Generate SBOM with OSSF tools
-      run: |
-        curl -sSL https://github.com/ossf/sbom-generator/releases/download/v0.3.0/sbom-generator-linux-amd64 -o sbom-generator
-        chmod +x sbom-generator
-        ./sbom-generator generate --format spdx-json --output sbom.json  # You can change the format to your preference
-
-    # Create the SLSA 3 metadata
-    - name: Generate SLSA 3 Metadata
-      run: |
-        curl -sSL https://github.com/ossf/slsa-github-generator/releases/download/v0.2.0/slsa-github-generator-linux-amd64 -o slsa-github-generator
-        chmod +x slsa-github-generator
-        ./slsa-github-generator generate --path . --format json --output slsa-metadata.json  # Adjust based on the repo path
-
-    # Upload the SBOM and SLSA 3 metadata as artifacts
-    - name: Upload SBOM and SLSA 3 metadata as artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: sbom-and-slsa-metadata
-        path: |
-          sbom.json
-          slsa-metadata.json
-
-    # Optionally, notify the team of a successful process
-    - name: Notify Success
-      if: success()
-      run: echo "SBOM and SLSA 3 metadata generated and uploaded successfully!"
-
-    # Optionally, notify on failure
-    - name: Notify Failure
-      if: failure()
-      run: echo "Failed to generate SBOM or SLSA 3 metadata."
+      - name: Run SLSA3 Check
+        run: |
+          # Example command, adjust for your needs
+          python -m slsa3-checker --project your-project
